@@ -4,17 +4,21 @@ import { Room, Mission, GameLog, GameMode } from "@/types/game";
 export type LiarMode = "fool" | "classic";
 
 export type WordPayload = {
-  word: string | null;   // classic 모드 라이어면 null
-  topic: string;         // ✅ 항상 보임
+  word: string | null;
+  topic: string;
   mode: LiarMode;
+};
+
+export type JoinResponse = {
+  room: Room;
+  self: { playerId: string };
 };
 
 export class GameService {
   constructor(private socket: Socket) {}
 
-  // ===== 방 관련 메서드 =====
   createRoom(nickname: string, gameMode: GameMode, maxPlayers: number) {
-    return new Promise<{ code: string; room: Room }>((resolve, reject) => {
+    return new Promise<{ code: string; room: Room; self: { playerId: string } }>((resolve, reject) => {
       this.socket.emit("room:create", { nickname, gameMode, maxPlayers }, (response: any) => {
         if (response?.error) reject(new Error(response.error));
         else resolve(response);
@@ -23,7 +27,7 @@ export class GameService {
   }
 
   joinRoom(code: string, nickname: string) {
-    return new Promise<Room>((resolve, reject) => {
+    return new Promise<JoinResponse>((resolve, reject) => {
       this.socket.emit("room:join", { code, nickname }, (response: any) => {
         if (response?.error) reject(new Error(response.error));
         else resolve(response);
@@ -32,7 +36,7 @@ export class GameService {
   }
 
   rejoinRoom(code: string, nickname: string) {
-    return new Promise<Room>((resolve, reject) => {
+    return new Promise<JoinResponse>((resolve, reject) => {
       this.socket.emit("room:rejoin", { code, nickname }, (response: any) => {
         if (response?.error) reject(new Error(response.error));
         else resolve(response);
@@ -49,13 +53,25 @@ export class GameService {
     });
   }
 
-  // ===== 게임 진행 =====
   startGame(roomId: string, mode?: LiarMode) {
     return new Promise<void>((resolve, reject) => {
       const data: any = { roomId };
       if (mode) data.mode = mode;
 
       this.socket.emit("game:start", data, (response: any) => {
+        if (response?.error) reject(new Error(response.error));
+        else resolve();
+      });
+    });
+  }
+
+  // 한 판 더하기(호스트 전용)
+  restartGame(roomId: string, mode?: LiarMode) {
+    return new Promise<void>((resolve, reject) => {
+      const data: any = { roomId };
+      if (mode) data.mode = mode;
+
+      this.socket.emit("game:restart", data, (response: any) => {
         if (response?.error) reject(new Error(response.error));
         else resolve();
       });
@@ -97,7 +113,7 @@ export class GameService {
     this.socket.on("game:word", callback);
   }
 
-  onGameEnd(callback: (data: { roomId: string; result: GameLog }) => void) {
+  onGameEnd(callback: (data: { roomId: string; result: GameLog | null }) => void) {
     this.socket.on("game:end", callback);
   }
 
@@ -109,23 +125,18 @@ export class GameService {
   offRoomStateUpdate(callback?: (room: Room) => void) {
     this.socket.off("room:state-update", callback);
   }
-
   offMissionAssign(callback?: (data: { playerId: string; mission: Mission }) => void) {
     this.socket.off("game:mission-assign", callback);
   }
-
   offPhaseChange(callback?: (data: { roomId: string; phase: string }) => void) {
     this.socket.off("game:phase-change", callback);
   }
-
   offWord(callback?: (data: WordPayload) => void) {
     this.socket.off("game:word", callback);
   }
-
-  offGameEnd(callback?: (data: { roomId: string; result: GameLog }) => void) {
+  offGameEnd(callback?: (data: { roomId: string; result: GameLog | null }) => void) {
     this.socket.off("game:end", callback);
   }
-
   offError(callback?: (data: any) => void) {
     this.socket.off("error", callback);
   }

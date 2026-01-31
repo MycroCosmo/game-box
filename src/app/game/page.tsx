@@ -24,15 +24,13 @@ function GameContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // 서버가 내려주는 내 playerId
+  const [selfPlayerId, setSelfPlayerId] = useState<string | null>(null);
+
   // custom-liar 개인 정보
   const [word, setWord] = useState<string | null>(null);
   const [topic, setTopic] = useState<string | null>(null);
 
-  /**
-   * isLiar 처리 규칙
-   * - fool: 라이어도 모르게 => null
-   * - classic: word가 null이면 라이어
-   */
   const [isLiar, setIsLiar] = useState<boolean | null>(null);
   const [liarMode, setLiarMode] = useState<LiarMode | null>(null);
 
@@ -60,7 +58,6 @@ function GameContent() {
         service.onMissionAssign((data) => setMission(data.mission));
         service.onPhaseChange((data) => setPhase(data.phase as Phase));
 
-        // ✅ 통합 이벤트: game:word (topic 포함)
         service.onWord((data) => {
           setWord(data.word ?? null);
           setTopic(data.topic ?? null);
@@ -72,12 +69,11 @@ function GameContent() {
 
         service.onError((err) => setError(err.message));
 
-        // ✅ 방 재접속
-        socket.emit("room:rejoin", { code, nickname }, (response: any) => {
-          if (response?.error) setError(response.error);
-          else setRoom(response);
-          setLoading(false);
-        });
+        // rejoin => { room, self }
+        const resp = await service.rejoinRoom(code, nickname);
+        setRoom(resp.room);
+        setSelfPlayerId(resp.self?.playerId ?? null);
+        setLoading(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "연결 오류");
         setLoading(false);
@@ -132,11 +128,13 @@ function GameContent() {
     );
   }
 
-  const isEnded = room?.state === "ended";
   const isCustomLiar = room?.gameMode === "custom-liar";
+  const isHost = !!room && !!selfPlayerId && selfPlayerId === room.host;
   const isMe = (p: { nickname: string }) => p.nickname === nickname;
 
   const getRoleEmoji = (player: any) => {
+    // 진행 중에는 남의 role은 숨김
+    const isEnded = room?.state === "ended";
     if (!isEnded && !isMe(player)) return "❓";
 
     if (isCustomLiar && isMe(player)) {
@@ -173,16 +171,52 @@ function GameContent() {
     return "❓ 미확인";
   };
 
+  // 모든 유저 로비로 나가기
+  const handleLeaveToLobby = async () => {
+    if (!gameService || !room) {
+      router.push("/");
+      return;
+    }
+    try {
+      await gameService.leaveRoom(room.id);
+    } catch {
+      // leave 실패해도 로비로는 보냄
+    } finally {
+      router.push("/");
+    }
+  };
+
+  // 호스트 한 판 더하기(언제든)
+  const handleRestart = async () => {
+    if (!gameService || !room) return;
+    try {
+      const mode = room.gameMode === "custom-liar" ? (liarMode ?? "classic") : undefined;
+      await gameService.restartGame(room.id, mode as any);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "한 판 더하기 실패");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-blue-600 p-4">
       <div className="max-w-2xl mx-auto">
-        <div className="text-center mb-8 text-white">
+        <div className="text-center mb-6 text-white">
           <h1 className="text-4xl font-bold mb-2">🎮 게임 진행 중</h1>
           <p className="text-purple-100">
             {room?.gameMode === "active-mafia"
               ? `페이즈: ${phase === "night" ? "🌙 밤" : "☀️ 낮"}`
               : "💭 라이어를 찾아내세요!"}
           </p>
+        </div>
+
+        {/* 로비로 나가기: 모두에게 표시 */}
+        <div className="mb-4">
+          <button
+            onClick={handleLeaveToLobby}
+            className="w-full bg-white/90 hover:bg-white text-purple-700 font-bold py-3 rounded-lg"
+          >
+            ⬅️ 로비로 나가기
+          </button>
         </div>
 
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
@@ -224,7 +258,7 @@ function GameContent() {
           </div>
         )}
 
-        {/* ========= custom-liar: fool ========= */}
+        {/* custom-liar 표시들 (기존 로직 유지) */}
         {room?.gameMode === "custom-liar" && liarMode === "fool" && word && (
           <div className="bg-blue-100 border-l-4 border-blue-500 rounded-lg shadow-lg p-6 mb-6">
             <h2 className="text-xl font-bold text-gray-800 mb-2">📝 제시어</h2>
@@ -243,13 +277,11 @@ function GameContent() {
           </div>
         )}
 
-        {/* ========= custom-liar: classic (liar) ========= */}
         {room?.gameMode === "custom-liar" && liarMode === "classic" && isLiar === true && (
           <div className="bg-red-100 border-l-4 border-red-500 rounded-lg shadow-lg p-6 mb-6">
             <h2 className="text-xl font-bold text-gray-800 mb-2">🤥 당신은 라이어입니다!</h2>
             <p className="text-gray-700 text-lg">정답이 무엇인지 알아내고, 다른 사람들을 속이세요.</p>
 
-            {/* ✅ 라이어도 주제는 보이게 */}
             {topic && (
               <div className="mt-4 bg-white rounded-lg p-4">
                 <p className="text-gray-600 text-sm mb-2">주제:</p>
@@ -259,7 +291,6 @@ function GameContent() {
           </div>
         )}
 
-        {/* ========= custom-liar: classic (citizen) ========= */}
         {room?.gameMode === "custom-liar" && liarMode === "classic" && isLiar === false && word && (
           <div className="bg-blue-100 border-l-4 border-blue-500 rounded-lg shadow-lg p-6 mb-6">
             <h2 className="text-xl font-bold text-gray-800 mb-2">👤 제시어</h2>
@@ -307,6 +338,18 @@ function GameContent() {
               </div>
             ))}
           </div>
+
+          {/* 호스트 전용: 한 판 더하기 버튼만 */}
+          {isHost && (
+            <div className="mt-6">
+              <button
+                onClick={handleRestart}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition"
+              >
+                ▶️ 한 판 더하기 (호스트 전용)
+              </button>
+            </div>
+          )}
 
           {/* 디버깅용 */}
           {room?.gameMode === "custom-liar" &&

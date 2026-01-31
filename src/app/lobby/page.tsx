@@ -4,9 +4,9 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState, Suspense, useRef } from "react";
 import { connectSocket } from "@/lib/services/socket";
 import GameService from "@/lib/services/game";
+import type { JoinResponse } from "@/lib/services/game";
 import { Room } from "@/types/game";
 
-// 동적 라우트로 설정 (useSearchParams 사용)
 export const dynamic = "force-dynamic";
 
 function LobbyContent() {
@@ -17,16 +17,16 @@ function LobbyContent() {
   const nickname = searchParams.get("nickname") || "";
   const code = searchParams.get("code");
   const gameMode = searchParams.get("gameMode") as "active-mafia" | "custom-liar" | null;
-  const maxPlayers = parseInt(searchParams.get("maxPlayers") || "6");
+  const maxPlayers = parseInt(searchParams.get("maxPlayers") || "6", 10);
 
   const [room, setRoom] = useState<Room | null>(null);
+  const [selfPlayerId, setSelfPlayerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [gameService, setGameService] = useState<GameService | null>(null);
   const [liarMode, setLiarMode] = useState<"fool" | "classic">("classic");
 
   useEffect(() => {
-    // 이미 초기화되었으면 다시 실행하지 않음
     if (initializationRef.current) return;
     initializationRef.current = true;
 
@@ -37,30 +37,31 @@ function LobbyContent() {
         const service = new GameService(socket);
         setGameService(service);
 
-        // 방 상태 업데이트 리스너
         service.onRoomStateUpdate((updatedRoom) => {
           setRoom(updatedRoom);
-          // 게임이 시작되면 게임 페이지로 라우팅
           if (updatedRoom.state !== "waiting") {
             router.push(`/game?nickname=${encodeURIComponent(nickname)}&code=${updatedRoom.code}`);
           }
         });
 
-        // 방 생성 또는 입장
         if (code) {
-          // 기존 방 입장
-          const joinedRoom = await service.joinRoom(code, nickname);
-          setRoom(joinedRoom);
+          // joinRoom => { room, self }
+          const resp = await service.joinRoom(code, nickname);
+          setRoom(resp.room);
+          setSelfPlayerId(resp.self?.playerId ?? null);
         } else if (gameMode) {
-          // 새 방 생성
-          const { code: newCode, room: newRoom } = await service.createRoom(
-            nickname,
-            gameMode,
-            maxPlayers
+          // createRoom => { code, room, self }
+          const resp = await service.createRoom(nickname, gameMode, maxPlayers);
+          setRoom(resp.room);
+          setSelfPlayerId(resp.self?.playerId ?? null);
+
+          window.history.replaceState(
+            {},
+            "",
+            `/lobby?nickname=${encodeURIComponent(nickname)}&code=${resp.code}`
           );
-          setRoom(newRoom);
-          // URL 히스토리 업데이트 (브라우저 뒤로가기 등에서 사용)
-          window.history.replaceState({}, "", `/lobby?nickname=${encodeURIComponent(nickname)}&code=${newCode}`);
+        } else {
+          throw new Error("방 코드 또는 게임 모드가 없습니다.");
         }
 
         setLoading(false);
@@ -73,7 +74,7 @@ function LobbyContent() {
     initializeSocket();
 
     return () => {
-      // Cleanup
+      // 필요하면 disconnect/cleanup 추가
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -81,12 +82,8 @@ function LobbyContent() {
   const handleStartGame = async () => {
     if (room && gameService) {
       try {
-        // 커스텀 라이어의 경우 모드 정보 전송
-        if (room.gameMode === "custom-liar") {
-          await gameService.startGame(room.id, liarMode);
-        } else {
-          await gameService.startGame(room.id);
-        }
+        if (room.gameMode === "custom-liar") await gameService.startGame(room.id, liarMode);
+        else await gameService.startGame(room.id);
       } catch (err) {
         setError(err instanceof Error ? err.message : "게임 시작 실패");
       }
@@ -97,10 +94,13 @@ function LobbyContent() {
     if (room && gameService) {
       try {
         await gameService.leaveRoom(room.id);
-        router.push("/");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "방 나가기 실패");
+        // leave 실패해도 UX상 홈으로는 보냄
+      } finally {
+        router.push("/");
       }
+    } else {
+      router.push("/");
     }
   };
 
@@ -131,14 +131,10 @@ function LobbyContent() {
     );
   }
 
-  if (!room) {
-    return null;
-  }
+  if (!room) return null;
 
-  // 호스트는 방을 생성한 첫 번째 플레이어 (room.host = 호스트의 플레이어 ID)
-  // 현재 유저는 닉네임으로 판별 가능
-  const currentPlayer = room.players.find((p) => p.nickname === nickname);
-  const isHost = currentPlayer?.id === room.host;
+  // host 판별은 selfPlayerId 기반
+  const isHost = !!selfPlayerId && selfPlayerId === room.host;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-blue-600 p-4">
@@ -146,7 +142,9 @@ function LobbyContent() {
         {/* 헤더 */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">🎮 게임 로비</h1>
-          <p className="text-purple-100 text-lg">방 코드: <span className="font-bold text-2xl">{room.code}</span></p>
+          <p className="text-purple-100 text-lg">
+            방 코드: <span className="font-bold text-2xl">{room.code}</span>
+          </p>
         </div>
 
         {/* 방 정보 */}
@@ -179,7 +177,7 @@ function LobbyContent() {
                 >
                   <div className="text-2xl mb-1">🤪</div>
                   <div className="text-sm font-bold">바보 모드</div>
-                  <div className="text-xs mt-1 opacity-90">라이어는 비슷한 정답을 앎</div>
+                  <div className="text-xs mt-1 opacity-90">라이어는 비슷한 단어를 봄</div>
                 </button>
                 <button
                   onClick={() => setLiarMode("classic")}
@@ -237,20 +235,15 @@ function LobbyContent() {
           </button>
         </div>
 
-        {/* 정보 */}
         {!isHost && (
           <div className="mt-6 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
-            <p className="text-blue-900 text-sm">
-              💡 호스트가 게임을 시작할 때까지 기다려주세요.
-            </p>
+            <p className="text-blue-900 text-sm">💡 호스트가 게임을 시작할 때까지 기다려주세요.</p>
           </div>
         )}
 
         {room.players.length < 3 && isHost && (
           <div className="mt-6 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r-lg">
-            <p className="text-yellow-900 text-sm">
-              ⚠️ 게임을 시작하려면 최소 3명 이상의 플레이어가 필요합니다.
-            </p>
+            <p className="text-yellow-900 text-sm">⚠️ 게임을 시작하려면 최소 3명 이상 필요합니다.</p>
           </div>
         )}
       </div>
