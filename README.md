@@ -1,129 +1,99 @@
 # GameBox
 
-여러 사용자가 같은 방에 접속해 실시간으로 게임 상태를 공유하는 파티게임 플랫폼입니다.
+Next.js와 Socket.io로 만든 실시간 파티게임 프로토타입입니다. 방 생성·참여와 라이어 역할·제시어 전달을 서버에서 처리합니다.
 
-Next.js 클라이언트와 Node.js/Socket.io 서버를 분리하고, 방과 게임 상태는 서버가 기준이 되도록 구성했습니다.
+## 현재 구현 범위
 
-## 기술 스택
+| 항목 | 현재 상태 |
+| --- | --- |
+| 방 생성·입장·퇴장 | Socket.io 이벤트와 `RoomManager`에서 처리 |
+| 게임 시작·다시 시작 | 호스트 확인 후 실행 |
+| 라이어 제시어 | `classic` / `fool` 방식으로 샘플 단어 전달 |
+| 재입장 | 닉네임으로 플레이어를 찾아 소켓과 제시어 상태 갱신 |
+| 미션 확인 | `confirmMission()`은 stub이며 실제 처리 미구현 |
+| 투표·승리 판정 | `submitVote()`는 고정 결과를 반환하는 stub |
+| 서버 재시작 복구 | 방·제시어 상태가 메모리에 있어 보장하지 않음 |
 
-| 영역 | 기술 |
-|---|---|
-| Frontend | Next.js, React, TypeScript |
-| Backend | Node.js, Express |
-| Real-time | Socket.io |
-| Database | PostgreSQL / Supabase |
-| Deployment | Vercel, Render |
+화면이나 이벤트 이름이 존재하는 것과 게임 규칙 구현이 완료된 것은 구분합니다. 완성된 마피아·라이어 게임이나 운영 검증이 끝난 서비스로 소개하지 않습니다.
 
-## 구조
+## 기술과 구조
 
-```text
-Players
-  │
-  ▼
-Next.js Client
-  │ Socket.io
-  ▼
-Express / Socket.io Server
-  │
-  ├── RoomManager
-  ├── GameEngine
-  └── Persistence
-  │
-  ▼
-PostgreSQL
-```
-
-방 참여 상태와 게임 진행 상태는 서버에서 관리합니다.
-
-클라이언트가 각자 게임 결과를 판단하지 않고 서버에서 전달받은 상태를 기준으로 화면을 갱신하도록 했습니다.
-
-## 게임 모드
-
-### Active Mafia
-
-게임 진행 중 플레이어에게 미션을 부여하고, 다른 사용자가 해당 미션 수행 여부를 확인할 수 있도록 구성했습니다.
-
-### Custom Liar
-
-난이도에 따라 라이어에게 제공되는 정보를 다르게 합니다.
-
-일부 모드에서는 라이어라는 사실을 직접 알려주지 않고 실제 정답과 유사한 다른 단어를 제공해 게임 흐름을 다르게 만들었습니다.
-
-## 서버 역할
-
-- 방 생성 / 입장 / 퇴장
-- 플레이어 상태 관리
-- 게임 시작
-- 역할 및 미션 할당
-- 게임 phase 전환
-- 투표 및 미션 확인
-- 상태 변경 broadcast
-- 게임 결과 및 로그 저장
-
-대표 Socket.io event:
+Next.js·React·TypeScript 클라이언트와 Express·Socket.io 서버를 사용합니다.
 
 ```text
-room:create
-room:join
-room:leave
-game:start
-game:phase-change
-game:mission-assign
-game:mission-confirm
-game:vote
-game:end
+브라우저 / Next.js
+  └─ Socket.io
+       └─ Express 서버
+            ├─ RoomManager: 방·플레이어 상태
+            └─ GameEngine: 역할·제시어 상태
+                 └─ 프로세스 메모리(Map)
 ```
 
-## 실패 상황
+Supabase 관련 의존성이 있어도 현재 `RoomManager`와 `GameEngine`은 방·제시어를 DB에 저장하지 않습니다. `server/src/database` 폴더나 DB 기반 상태 복구가 구현되어 있다는 설명은 사용하지 않습니다.
 
-실시간 서비스에서는 정상 연결 상태만 고려하면 안 된다고 판단했습니다.
+## 로컬 실행
 
-다음 상황을 별도 문제로 다루고 있습니다.
-
-- Socket 연결 해제
-- 재연결 후 클라이언트 상태 불일치
-- 늦게 도착한 event
-- 중복 event
-- 게임 중 사용자 이탈
-- 서버와 클라이언트 상태 동기화
-
-재접속 이후 상태 복구 로직은 계속 개선 중입니다.
-
-## 프로젝트 구조
-
-```text
-game-box/
-├── src/                    # Next.js Client
-│   ├── app/
-│   ├── components/
-│   ├── lib/
-│   └── types/
-├── server/
-│   └── src/
-│       ├── game/
-│       │   ├── RoomManager.ts
-│       │   └── GameEngine.ts
-│       └── database/
-└── database-schema.sql
-```
-
-## 실행
-
-Frontend와 Backend dependency를 각각 설치합니다.
+Node.js와 npm을 준비하고 **저장소 루트**에서 시작합니다.
 
 ```bash
 npm install
-
-cd server
-npm install
+npm --prefix server install
 ```
 
-Supabase 연결 정보와 Frontend/Backend origin 등은 환경 변수로 관리합니다.
+루트 `.env.local`:
 
-## 이 프로젝트에서 다룬 내용
+```dotenv
+NEXT_PUBLIC_SOCKET_URL=http://localhost:4000
+```
 
-- Multiplayer authoritative server state
-- Event-driven backend
-- 실시간 방 상태 동기화
-- 게임 phase / role 상태 모델링
-- WebSocket 연결 해제와 재접속 처리
+`server/.env`:
+
+```dotenv
+PORT=4000
+FRONTEND_URL=http://localhost:3000
+```
+
+두 환경 파일은 본인의 로컬에서 작성하고 실제 비밀정보를 커밋하지 마세요. 현재 서버의 방·제시어 처리는 외부 DB 없이 메모리에서 동작합니다.
+
+저장소 루트에서 프론트엔드와 백엔드를 함께 실행합니다.
+
+```bash
+npm run dev
+```
+
+| 확인 대상 | 기본 주소 |
+| --- | --- |
+| 웹 화면 | `http://localhost:3000` |
+| 서버 상태 | `http://localhost:4000/health` |
+
+서버만 따로 실행하려면 `npm run dev:backend`, 화면만 실행하려면 `npm run dev:frontend`를 사용합니다. 다른 기기에서 접속할 때는 소켓 주소와 허용 Origin을 해당 환경에 맞게 변경해야 합니다.
+
+### 빌드 후 개별 실행
+
+```bash
+npm run build
+```
+
+빌드 성공 후 서로 다른 터미널에서 루트 기준으로 실행합니다.
+
+```bash
+npm run start:frontend
+```
+
+```bash
+npm run start:backend
+```
+
+## 코드 위치
+
+- [소켓 이벤트와 서버 시작](server/src/index.ts)
+- [방·플레이어 관리](server/src/game/RoomManager.ts)
+- [게임 엔진과 미구현 stub](server/src/game/GameEngine.ts)
+- [클라이언트 소켓 연결](src/lib/services/socket.ts)
+- [로비에서 사용하는 소켓 주소](src/app/lobby/page.tsx)
+
+## 남아 있는 검증 항목
+
+현재 재입장은 닉네임을 사용하므로 토큰 기반 본인 확인과 동일하지 않습니다. 연결 해제 후 복구, 플레이어별 정보 비공개 전달, 투표 요청자의 권한, 중복·지연 이벤트, 프로세스 재시작은 별도 구현·회귀 테스트가 필요합니다.
+
+실행 명령과 코드 구조를 정리한 문서이며, 전체 게임 시나리오와 배포 환경을 검증 완료했다는 의미는 아닙니다.
