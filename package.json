@@ -9,7 +9,7 @@
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "next build",
     "build:backend": "npm --prefix server run build",
-    "start": "concurrently \"npm start:frontend\" \"npm start:backend\"",
+    "start": "concurrently \"npm run start:frontend\" \"npm run start:backend\"",
     "start:frontend": "next start",
     "start:backend": "npm --prefix server run start",
     "lint": "eslint"

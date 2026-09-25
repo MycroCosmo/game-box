@@ -1,0 +1,20 @@
+name: Start script regression
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'scripts/start-command.test.cjs'
+      - '.github/workflows/start-script-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  command-routing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node --test scripts/start-command.test.cjs
