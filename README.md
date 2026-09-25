@@ -16,7 +16,7 @@ Next.js 클라이언트와 Node.js/Socket.io 서버를 분리하고, 방과 게�
 
 ## 구조
 
-\`\`\`text
+```text
 Players
   │
   ▼
@@ -31,7 +31,7 @@ Express / Socket.io Server
   │
   ▼
 PostgreSQL
-\`\`\`
+```
 
 방 참여 상태와 게임 진행 상태는 서버에서 관리합니다.
 
@@ -62,7 +62,7 @@ PostgreSQL
 
 대표 Socket.io event:
 
-\`\`\`text
+```text
 room:create
 room:join
 room:leave
@@ -72,7 +72,7 @@ game:mission-assign
 game:mission-confirm
 game:vote
 game:end
-\`\`\`
+```
 
 ## 실패 상황
 
@@ -91,7 +91,7 @@ game:end
 
 ## 프로젝트 구조
 
-\`\`\`text
+```text
 game-box/
 ├── src/                    # Next.js Client
 │   ├── app/
@@ -105,18 +105,18 @@ game-box/
 │       │   └── GameEngine.ts
 │       └── database/
 └── database-schema.sql
-\`\`\`
+```
 
 ## 실행
 
 Frontend와 Backend dependency를 각각 설치합니다.
 
-\`\`\`bash
+```bash
 npm install
 
 cd server
 npm install
-\`\`\`
+```
 
 Supabase 연결 정보와 Frontend/Backend origin 등은 환경 변수로 관리합니다.
 
